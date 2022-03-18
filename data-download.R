@@ -1,5 +1,7 @@
-library(rjson)
 library(tidyverse)
+library(comtradr)
+library(rjson)
+library(progress)
 
 country_list <- fromJSON(file= "http://comtrade.un.org/data/cache/partnerAreas.json") %>% 
   {as.data.frame(t(sapply(.$results,rbind)))} %>% 
@@ -22,31 +24,18 @@ country_list <- fromJSON(file= "http://comtrade.un.org/data/cache/partnerAreas.j
   select(-n) %>% 
   arrange(v1)
 
-country_list %>% 
-  filter(v1 == "660")
-
-
 commodity_list <- 
   fromJSON(file= "https://comtrade.un.org/Data/cache/classificationHS.json") %>% 
   {bind_rows(.$results)} %>% 
   filter(str_length(id) == 2 | id == "ALL" | id == "TOTAL")
 
-req_df <- crossing(country_list, commodity_list) %>% 
+df <- crossing(country_list, commodity_list) %>% 
   arrange(id, geo)
 
-get.Comtrade <- function(url="http://comtrade.un.org/api/get?"
-                         ,maxrec=50000
-                         ,type="C"
-                         ,freq="A"
-                         ,px="HS"
-                         ,ps="now"
-                         ,r
-                         ,p
-                         ,rg="all"
-                         ,cc="TOTAL"
-                         ,fmt="json"
-)
-{
+
+
+get.Comtrade <- function(url="http://comtrade.un.org/api/get?", maxrec=50000, type="C", freq="A",
+                         px="HS", ps="now", r, p, rg="all", cc="TOTAL", fmt="json"){
   string<- paste(url
                  ,"max=",maxrec,"&" #maximum no. of records returned
                  ,"type=",type,"&" #type of trade (c=commodities)
@@ -86,39 +75,70 @@ get.Comtrade <- function(url="http://comtrade.un.org/api/get?"
   }
 }
 
-get_data <- function(r, time, cc) {
-    tryCatch({
-      data_country <- get.Comtrade(r = r, p = "all", freq = "A", ps = str_c(time, collapse = ","), cc = cc) %>% 
-        {.$data}
-    }, error = function(e) Sys.sleep(3700))
-  data_country
+done_l <- list.files("raw", full.names = TRUE)
+
+if (length(done_l) >= 1) {
+  df <- map(done_l, ~ {load(.); get("raw_data")}) %>% 
+    reduce(c) %>% 
+    bind_rows() %>% 
+    anti_join(x = df)
 }
 
-downloaded_files <- list.files("raw") %>% 
-  str_remove_all("\\D") %>% 
-  as.numeric() 
+i <- 1
+raw_data <- list()
 
-req_df <- req_df %>% 
-  mutate(
-    row_num = row_number(),
-    g = row_num %/% 100
-  ) %>% 
-  filter(!(g %in% downloaded_files))
+pb <- progress_bar$new(format = "(:spin) [:bar] :percent [Elapsed time: :elapsedfull || Estimated time remaining: :eta]",
+                       total = 470,
+                       complete = "=",   # Completion bar character
+                       incomplete = "-", # Incomplete bar character
+                       current = ">",    # Current bar character
+                       clear = FALSE,    # If TRUE, clears the bar when finish
+                       width = 100) 
 
-# for (i in rev(unique(req_df$g))) { # Bálint
-# for (i in unique(req_df$g)) {
-for (i in 1) {
-  tictoc::tic()
-  answer_df <- apply(filter(req_df, g == i)[, c(1, 4)], 1, function(x) get_data(r = x[1], time = 2016:2020, cc = x[2]))
-  out <- bind_cols(
-    filter(req_df, g == i), 
-    tibble(data = answer_df)
-  ) %>% 
-    unnest(cols = c(data))
+while(TRUE) {
+  iwalk(df, ~ assign(.y, .x[i], envir = rlang::env_parent()))
   
-  save(out, file = str_c("raw/data", i, ".RData"))
-  tictoc::toc()
-  # Sys.sleep(3700)
-}
+  if (i != 1) rm("api_answer") # error if not created
+  
+  tryCatch(
+    expr = {
+      api_answer <- get.Comtrade(r = v1, p = "all", freq = "A", ps = str_c(2016:2017, collapse = ","), cc = id)
+    },
+    error = function(e){
+    }
+  )   
+  
+  if (exists("api_answer")) {
+    raw_data[[length(raw_data) + 1]] <- df %>% 
+      slice(i) %>% 
+      mutate(data = list(api_answer))
+    
+    i <- i + 1 
+    pb$tick()
+    
+    
+  } else {
+    message("Error at ", v2, ": ", text)
+    beepr::beep(2)
+    Sys.sleep(10)
+  }
+  
+  if (i %% 470 == 0 & i != 0) {
+    n_raw <- list.files("raw") %>% 
+      length()
+    
+    save(raw_data, file = str_c("raw/data", n_raw + 1, ".RData"))
+    
+    pb <- progress_bar$new(format = "(:spin) [:bar] :percent [Elapsed time: :elapsedfull || Estimated time remaining: :eta]",
+                           total = 470,
+                           complete = "=",   # Completion bar character
+                           incomplete = "-", # Incomplete bar character
+                           current = ">",    # Current bar character
+                           clear = FALSE,    # If TRUE, clears the bar when finish
+                           width = 100) 
 
+  }
+  
+  Sys.sleep(.1)
+}
 

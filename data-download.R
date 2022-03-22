@@ -24,8 +24,7 @@ country_list <- fromJSON(file= "http://comtrade.un.org/data/cache/partnerAreas.j
   select(-n) %>% 
   arrange(v1)
 
-commodity_list <- 
-  fromJSON(file= "https://comtrade.un.org/Data/cache/classificationHS.json") %>% 
+commodity_list <- fromJSON(file= "https://comtrade.un.org/Data/cache/classificationHS.json") %>% 
   {bind_rows(.$results)} %>% 
   filter(str_length(id) == 2 | id == "ALL" | id == "TOTAL")
 
@@ -118,7 +117,7 @@ while(TRUE) {
     
     
   } else {
-    message("Error at ", v2, ": ", text)
+    message("Error at ", v2, ": ", id)
     beepr::beep(2)
     Sys.sleep(10)
   }
@@ -135,7 +134,10 @@ while(TRUE) {
                            incomplete = "-", # Incomplete bar character
                            current = ">",    # Current bar character
                            clear = FALSE,    # If TRUE, clears the bar when finish
-                           width = 100) 
+                           width = 100)
+    
+    raw_data <- list()
+    closeAllConnections()
 
   }
   

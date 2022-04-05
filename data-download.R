@@ -85,7 +85,7 @@ if (length(done_l) >= 1) {
 
 i <- 1
 raw_data <- list()
-
+n_error <- 0
 pb <- progress_bar$new(format = "(:spin) [:bar] :percent [Elapsed time: :elapsedfull || Estimated time remaining: :eta]",
                        total = 470,
                        complete = "=",   # Completion bar character
@@ -101,9 +101,10 @@ while(TRUE) {
   
   tryCatch(
     expr = {
-      api_answer <- get.Comtrade(r = v1, p = "all", freq = "A", ps = str_c(2016:2017, collapse = ","), cc = id)
+      api_answer <- get.Comtrade(r = v1, p = "all", freq = "A", ps = str_c(2019, collapse = ","), cc = id)
     },
     error = function(e){
+      n_error <<- n_error + 1
     }
   )   
   
@@ -112,13 +113,16 @@ while(TRUE) {
       slice(i) %>% 
       mutate(data = list(api_answer))
     
+    
+    n_error <- 0
     i <- i + 1 
     pb$tick()
     
     
   } else {
-    message("Error at ", v2, ": ", id)
-    beepr::beep(2)
+    if (n_error >= 3 & n_error %% 3 == 0) {
+      beepr::beep(9)
+    }
     Sys.sleep(10)
   }
   
@@ -138,7 +142,7 @@ while(TRUE) {
     
     raw_data <- list()
     closeAllConnections()
-
+    
   }
   
   Sys.sleep(.1)

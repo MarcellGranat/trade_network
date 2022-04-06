@@ -1,0 +1,87 @@
+---
+title: "Results - trade_network"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, dpi = 400, dev = c("png", "pdf"), error = TRUE)
+```
+
+```{r message=FALSE}
+library(tidyverse)
+library(gravity)
+library(sf)
+library(granatlib)
+
+theme_set(theme_bw())
+```
+
+```{r}
+load("data/trade_data.RData")
+```
+
+## Gravity model
+
+```{r}
+gravity_fit_df <- trade_df %>%
+  filter(value >= 0) %>%
+  left_join(x = distance_gdp_df, c("geo_to", "geo_from")) %>% 
+  filter(direction == "netto_trade") %>% 
+  mutate(across(starts_with("gdp"), log)) %>% 
+  group_by(product) %>% 
+  nest() %>% 
+  mutate(
+    fit_ppml =  map(data, ~ {
+      gravity::ppml(dependent_variable = "value", distance = "distance", additional_regressors = c("gdp_from", "gdp_to"), data = .)
+    })
+  )
+```
+
+```{r}
+l <- code_label_df %>% 
+  mutate(
+    code = as.numeric(code),
+    code = as.character(code)
+         ) %>% 
+  pull(label, code)
+
+gravity_fit_df %>% 
+  pull(fit_ppml) %>% 
+  GGally::ggcoef_compare(variable_labels = l)
+```
+
+
+```{r}
+mutate(tidied = map(fit_ppml, broom::tidy)) %>% 
+  select(product, tidied) %>% 
+  unnest(tidied)
+```
+
+```{r}
+augmented_ppml_df <- gravity_fit_df %>% 
+  mutate(
+    augmented = map(fit_ppml, broom::augment),
+    data = map(data, drop_na),
+    data = map(data, select, geo_from, geo_to)
+  ) %>% 
+  select(product, data, augmented) %>% 
+  unnest(c(data, augmented))
+```
+
+
+```{r}
+augmented_ppml_df %>% 
+  slice_max(.std.resid, n = 5) %>% 
+  summarise(top5std.error = str_c(str_c(geo_from, "-", geo_to), collapse = ", ")) %>% 
+  
+```
+
+```{r}
+augmented_ppml_df %>% 
+  slice_min(.std.resid, n = 5) %>% 
+  summarise(bottom5std.error = str_c(str_c(geo_from, "-", geo_to), collapse = ", ")) %>% 
+  mutate(product = NiceProductName(product))
+```
+

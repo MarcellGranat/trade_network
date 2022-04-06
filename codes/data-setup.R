@@ -1,5 +1,3 @@
-library(tidyverse)
-
 rm(list = ls())
 
 raw_data_df <- list.files("raw", full.names = TRUE) %>% 
@@ -17,13 +15,16 @@ trade_df <- raw_data_df %>%
   ) %>% 
   distinct() %>% 
   filter(!is.na(geo_to)) %>% # TODO ez mekkora arányt jelent
+  replace_na(list(value = 0)) %>% 
   pivot_wider(names_from = direction, values_from = value, values_fill = 0) %>% 
   mutate(
     netto_export = export - `re-export`,
-    netto_import = import - `re-import`
+    netto_import = import - `re-import`,
+    netto_trade =netto_export - netto_import,
   ) %>% 
   janitor::clean_names() %>% 
-  pivot_longer(import:last_col(), names_to = "direction")
+  pivot_longer(import:last_col(), names_to = "direction") %>% 
+  select(- time)
 
 trade_avg_df <- trade_df %>% # compare export and import
   filter(direction == "netto_export") %>% 
@@ -53,5 +54,47 @@ netto_export_df <- trade_avg_df %>%
   mutate(netto_export = export - import) %>% 
   filter(geo_to != "WLD", geo_from != "WLD")
 
+gdp_df <- wbstats::wb(indicator = "NY.GDP.MKTP.CD") %>% 
+  filter(date == 2019) %>% 
+  select(country = iso2c, gdp = value) %>%
+  mutate(
+    country = countrycode::countrycode(country, "iso2c", "iso3c")
+  )
+
+centroids_df <- read_html('https://developers.google.com/public-data/docs/canonical/countries_csv') %>% 
+  html_nodes('table') %>% 
+  html_table() %>% 
+  first()
+
+library(sf)
+
+distance_df <- centroids_df %>% 
+  transmute(country, geometry = map2(longitude, latitude, ~ st_point(c(.x, .y)))) %>% 
+  st_as_sf() %>% 
+  st_set_crs(4326) %>% 
+  st_distance() %>% 
+  data.frame() %>% 
+  set_names(centroids_df$country) %>% 
+  data.frame() %>% 
+  mutate(geo_to = centroids_df$country) %>% 
+  pivot_longer(- geo_to, names_to = "geo_from", values_to = "distance") %>% 
+  mutate(
+    distance = as.numeric(distance),
+    distance = as.numeric(distance) / 1e3 # km
+  ) %>% 
+  filter(geo_to != geo_from) %>% 
+  mutate(
+    geo_from = countrycode::countrycode(geo_from, "iso2c", "iso3c"),
+    geo_to = countrycode::countrycode(geo_to, "iso2c", "iso3c")
+  )
+
+distance_gdp_df <- distance_df %>% # TODO rename to nice
+  left_join(
+    rename(gdp_df, geo_from = country, gdp_from = gdp)
+  ) %>% 
+  left_join(
+    rename(gdp_df, geo_to = country, gdp_to = gdp)
+  )
 
 save.image(file = "data/trade_data.RData")
+

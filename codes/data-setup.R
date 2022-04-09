@@ -61,6 +61,8 @@ gdp_df <- wbstats::wb(indicator = "NY.GDP.MKTP.CD") %>%
     country = countrycode::countrycode(country, "iso2c", "iso3c")
   )
 
+library(rvest)
+
 centroids_df <- read_html('https://developers.google.com/public-data/docs/canonical/countries_csv') %>% 
   html_nodes('table') %>% 
   html_table() %>% 

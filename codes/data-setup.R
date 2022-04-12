@@ -1,13 +1,20 @@
 rm(list = ls())
 
 raw_data_df <- list.files("raw", full.names = TRUE) %>% 
+  keep(str_detect, "total", negate = TRUE) %>%
   map(~ {load(.); raw_data}) %>% 
   reduce(c) %>% 
   bind_rows() %>% 
   mutate(data = map(data, 2))
 
+load("raw/data_total.RData")
+
 trade_df <- raw_data_df %>%
   unnest(data) %>% 
+  bind_rows(
+    map_df(raw_data$data, 2) %>% 
+  mutate(id = "total")
+    ) %>% 
   select(time = yr, product = id, direction = rgDesc, geo_from = rt3ISO, geo_to = pt3ISO, value = TradeValue) %>% 
   mutate(
     direction = str_to_lower(direction),
@@ -16,6 +23,7 @@ trade_df <- raw_data_df %>%
   distinct() %>% 
   filter(!is.na(geo_to)) %>% # TODO ez mekkora arányt jelent
   replace_na(list(value = 0)) %>% 
+  drop_na() %>%
   pivot_wider(names_from = direction, values_from = value, values_fill = 0) %>% 
   mutate(
     netto_export = export - `re-export`,
@@ -23,8 +31,7 @@ trade_df <- raw_data_df %>%
     netto_trade =netto_export - netto_import,
   ) %>% 
   janitor::clean_names() %>% 
-  pivot_longer(import:last_col(), names_to = "direction") %>% 
-  select(- time)
+  pivot_longer(import:last_col(), names_to = "direction")
 
 trade_avg_df <- trade_df %>% # compare export and import
   filter(direction == "netto_export") %>% 
@@ -55,8 +62,8 @@ netto_export_df <- trade_avg_df %>%
   filter(geo_to != "WLD", geo_from != "WLD")
 
 gdp_df <- wbstats::wb(indicator = "NY.GDP.MKTP.CD") %>% 
-  filter(date == 2019) %>% 
-  select(country = iso2c, gdp = value) %>%
+  filter(date >= 2000 & date <= 2019) %>% 
+  select(year = date, country = iso2c, gdp = value) %>%
   mutate(
     country = countrycode::countrycode(country, "iso2c", "iso3c")
   )
@@ -99,4 +106,6 @@ distance_gdp_df <- distance_df %>% # TODO rename to nice
   )
 
 save.image(file = "data/trade_data.RData")
+
+
 

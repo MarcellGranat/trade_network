@@ -18,9 +18,56 @@ library(granatlib)
 theme_set(theme_bw())
 ```
 
+## Highest traded commodities
+
+```{r}
+load("raw/all_data1.RData")
+
+raw_data %>% 
+  bind_rows() %>% 
+  transmute(data = map(data, 2)) %>% 
+  unnest() %>% 
+  filter(rgDesc == "Export") %>% 
+  group_by(cmdDescE) %>% 
+  summarise(value = sum(as.numeric(TradeValue)) / 1e9) %>% # billions and billions US dollar
+  arrange(desc(value)) %>% 
+  head(20) %>% 
+  set_names("Commodity", "Total export") %>% 
+  mutate_at(1, str_wrap, width = 30) %>% 
+  kable_output(caption = "Highest traded commodities")
+```
+
+
 ```{r}
 load("data/trade_data.RData")
+load("data/aux-data.RData")
 ```
+
+```{r}
+gdp_df
+```
+
+
+```{r}
+code_label_df <- raw_data_df %>% 
+  select(text) %>% 
+  distinct() %>% 
+  separate(text, c("code", "label"), sep = " - ")
+
+NiceProductName <- function(x, wrap = NULL) {
+  out <- map_chr(x, function(current_x) {
+    pull(code_label_df, label, code) %>% 
+      .[[current_x]]
+  })
+  
+  if (!is.null(wrap)) {
+    out <- str_wrap(out, wrap)
+  }
+  out
+}
+
+```
+
 
 ## Gravity model
 
@@ -75,13 +122,15 @@ augmented_ppml_df <- gravity_fit_df %>%
 augmented_ppml_df %>% 
   slice_max(.std.resid, n = 5) %>% 
   summarise(top5std.error = str_c(str_c(geo_from, "-", geo_to), collapse = ", ")) %>% 
-  
+  mutate(product = NiceProductName(product)) %>% 
+  granatlib::kable_output()
 ```
 
 ```{r}
 augmented_ppml_df %>% 
   slice_min(.std.resid, n = 5) %>% 
   summarise(bottom5std.error = str_c(str_c(geo_from, "-", geo_to), collapse = ", ")) %>% 
-  mutate(product = NiceProductName(product))
+  mutate(product = NiceProductName(product)) %>% 
+  granatlib::kable_output()
 ```
 

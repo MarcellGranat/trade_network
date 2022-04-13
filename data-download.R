@@ -28,11 +28,19 @@ commodity_list <- fromJSON(file= "https://comtrade.un.org/Data/cache/classificat
   {bind_rows(.$results)} %>% 
   filter(str_length(id) == 2 | id == "ALL" | id == "TOTAL")
 
+year_df <- tibble(year = 2000:2019) %>% 
+  mutate(m = (row_number() + -1) %/% 5) %>% 
+  group_by(m) %>% 
+  summarise(year = str_c(year, collapse = ",")) %>% 
+  select(year)
+
 df <- crossing(country_list, commodity_list) %>% 
-  arrange(id, geo)
-
-
-
+  arrange(id, geo) %>% 
+  crossing(year_df) %>% 
+  filter(
+    id %in% c(85L, 84L, 27L, 87L, 71L, 30L, 90L, 39L, 29L, 99L, 72L, 88L, 73L, 94L, 26L, 61L, 62L, 38L, 40L, 76L)
+  )
+  
 get.Comtrade <- function(url="http://comtrade.un.org/api/get?", maxrec=50000, type="C", freq="A",
                          px="HS", ps="now", r, p, rg="all", cc="TOTAL", fmt="json"){
   string<- paste(url
@@ -74,7 +82,8 @@ get.Comtrade <- function(url="http://comtrade.un.org/api/get?", maxrec=50000, ty
   }
 }
 
-done_l <- list.files("raw", full.names = TRUE)
+done_l <- list.files("raw", full.names = TRUE) %>% 
+  discard(str_detect, "all|total")
 
 if (length(done_l) >= 1) {
   df <- map(done_l, ~ {load(.); get("raw_data")}) %>% 
@@ -101,7 +110,7 @@ while(TRUE) {
   
   tryCatch(
     expr = {
-      api_answer <- get.Comtrade(r = v1, p = "all", freq = "A", ps = str_c(2019, collapse = ","), cc = id)
+      api_answer <- get.Comtrade(r = v1, p = "all", freq = "A", ps = year, cc = id)
     },
     error = function(e){
       n_error <<- n_error + 1

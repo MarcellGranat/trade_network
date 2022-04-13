@@ -1,19 +1,21 @@
 rm(list = ls())
 
 raw_data_df <- list.files("raw", full.names = TRUE) %>% 
-  keep(str_detect, "total", negate = TRUE) %>%
+  keep(str_detect, "total|5_10", negate = TRUE) %>%
   map(~ {load(.); raw_data}) %>% 
   reduce(c) %>% 
   bind_rows() %>% 
   mutate(data = map(data, 2))
 
 load("raw/data_total.RData")
+load("raw/data_5_10.rdata")
 
 trade_df <- raw_data_df %>%
   unnest(data) %>% 
   bind_rows(
-    map_df(raw_data$data, 2) %>% 
-  mutate(id = "total")
+    map_df(raw_data_total$data, 2) %>% 
+  mutate(id = "total"), 
+  map_df(raw_data_5_10$data, 2)
     ) %>% 
   select(time = yr, product = id, direction = rgDesc, geo_from = rt3ISO, geo_to = pt3ISO, value = TradeValue) %>% 
   mutate(
@@ -31,7 +33,8 @@ trade_df <- raw_data_df %>%
     netto_trade =netto_export - netto_import,
   ) %>% 
   janitor::clean_names() %>% 
-  pivot_longer(import:last_col(), names_to = "direction")
+  pivot_longer(import:last_col(), names_to = "direction") %>% 
+  filter(product %in% c("85", "84", "27", "87", "71", "30", "90", "39", "29", "72", "88", "73", "94", "26", "61", "62", "38", "40", "76", "total"))
 
 trade_avg_df <- trade_df %>% # compare export and import
   filter(direction == "netto_export") %>% 
@@ -63,9 +66,9 @@ netto_export_df <- trade_avg_df %>%
 
 gdp_df <- wbstats::wb(indicator = "NY.GDP.MKTP.CD") %>% 
   filter(date >= 2000 & date <= 2019) %>% 
-  select(year = date, country = iso2c, gdp = value) %>%
+  select(time = date, geo = iso2c, gdp = value) %>%
   mutate(
-    country = countrycode::countrycode(country, "iso2c", "iso3c")
+    geo = countrycode::countrycode(geo, "iso2c", "iso3c")
   )
 
 library(rvest)
@@ -77,7 +80,7 @@ centroids_df <- read_html('https://developers.google.com/public-data/docs/canoni
 
 library(sf)
 
-distance_df <- centroids_df %>% 
+centroid_distance_df <- centroids_df %>% 
   transmute(country, geometry = map2(longitude, latitude, ~ st_point(c(.x, .y)))) %>% 
   st_as_sf() %>% 
   st_set_crs(4326) %>% 
@@ -97,13 +100,7 @@ distance_df <- centroids_df %>%
     geo_to = countrycode::countrycode(geo_to, "iso2c", "iso3c")
   )
 
-distance_gdp_df <- distance_df %>% # TODO rename to nice
-  left_join(
-    rename(gdp_df, geo_from = country, gdp_from = gdp)
-  ) %>% 
-  left_join(
-    rename(gdp_df, geo_to = country, gdp_to = gdp)
-  )
+rm(centroids_df)
 
 save.image(file = "data/trade_data.RData")
 

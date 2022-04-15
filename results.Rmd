@@ -41,10 +41,143 @@ raw_data %>%
 ```{r}
 load("data/trade_data.RData")
 load("data/aux-data.RData")
+load("data/eigen.RData") # TODO check
 ```
 
 ```{r}
-gdp_df
+gravity_df <- trade_avg_df %>% 
+  replace_na(list(value = 0)) %>% 
+  left_join(trade_aggrement) %>% 
+  mutate(across(gcc:nafta, ~ ifelse(is.na(.), FALSE, .))) %>% 
+  left_join(rename(gdp_df, geo_from = geo, gdp_from = gdp)) %>% 
+  left_join(rename(gdp_df, geo_to = geo, gdp_to = gdp)) %>% 
+  left_join(capital_distance_df) %>% 
+  left_join(rename(cds_premium_df, geo_from = geo, spread_from = spread)) %>% 
+  left_join(rename(cds_premium_df, geo_to = geo, spread_to = spread)) %>% 
+  filter(geo_from != "WLD", geo_to != "WLD") %>%
+  left_join(eigen_df, by = c("time", "product", "geo_from" = "geo_omit")) %>% 
+  filter(geo_from != geo_to) 
+```
+
+```{r}
+gravity_df <- trade_avg_df %>% 
+  mutate(
+    g = ifelse(geo_from <= geo_to, str_c(geo_from, geo_to), str_c(geo_to, geo_from)),
+    g = str_c(g, time, product)
+  ) %>% 
+  arrange(desc(value)) %>% 
+  filter(!duplicated(g)) %>% 
+  select(- g) %>% 
+  semi_join(x = gravity_df)
+```   
+
+```{r}
+c("time", "product", "geo_from", "geo_to", "value", "gcc", "mercosur", "eu", "eurozone", "efta", "comesa", "afta", "nafta", "gdp_from", "gdp_to", "distance_km", "spread_from", "spread_to")
+```
+
+## Ei
+
+```{r}
+fit_ppml_ei_df <- gravity_df %>% 
+  filter(value >= 0) %>%
+  mutate(across(starts_with("gdp"), log)) %>% 
+  group_by(time, product) %>% 
+  nest() %>% 
+  mutate(
+    fit_ppml =  map(data, ~ {
+      gravity::ppml(dependent_variable = "value", distance = "distance_km", additional_regressors = c("gdp_from", "gdp_to", "ei", "spread_from"), data = .)
+    })
+  )
+```
+
+```{r}
+fit_ppml_ei_df %>% 
+  transmute(
+    product, time,
+    tidied = map(fit_ppml, broom::tidy)
+  ) %>% 
+  unnest() %>% 
+  filter(product=="total") %>% 
+  ggplot() +
+  aes(x = as.numeric(time), color = product, y = estimate) +
+  facet_wrap(~ term, scales = "free") +
+  geom_line()
+```
+
+```{r}
+fit_ppml_ei_df %>% 
+  # filter(product == "total", time == 2019) %>% 
+  pull %>% 
+  first() %>% 
+  plotmo::plotmo()
+```
+
+## Panel
+
+```{r}
+fit_ppml_ei_df <- gravity_df %>% 
+  filter(value >= 0) %>%
+  mutate(across(starts_with("gdp"), log)) %>% 
+  group_by(product) %>% 
+  nest() %>% 
+  mutate(
+    fit_ppml =  map(data, ~ {
+      gravity::ppml(dependent_variable = "value", distance = "distance_km", additional_regressors = c("gdp_from", "gdp_to", "ei", "spread_from"), data = .)
+    })
+  )
+```
+
+## trade aggrement
+
+```{r}
+fit_ppml_df <- gravity_df %>% 
+  filter(value >= 0) %>%
+  mutate(across(starts_with("gdp"), log)) %>% 
+  group_by(time, product) %>% 
+  nest() %>% 
+  mutate(
+    fit_ppml =  map(data, ~ {
+      gravity::ppml(dependent_variable = "value", distance = "distance_km", additional_regressors = c("gdp_from", "gdp_to", "gcc", "mercosur", "efta", "comesa", "afta", "nafta"), data = .)
+    })
+  )
+```
+
+- mennyire becsüli alá a kapcsolatok értékét
+
+```{r}
+fit_ppml_df %>% 
+  transmute(
+    product, time,
+    tidied = map(fit_ppml, broom::tidy)
+  ) %>% 
+  unnest() %>% 
+  filter(product=="total") %>% 
+  ggplot() +
+  aes(x = as.numeric(time), color = product, y = estimate) +
+  facet_wrap(~ term, scales = "free") +
+  geom_line()
+```
+
+```{r}
+fit_ppml_df <- gravity_df %>% 
+  filter(value >= 0) %>%
+  mutate(across(starts_with("gdp"), log)) %>% 
+  mutate_if(is.logical, as.factor) %>% 
+  group_by(time, product) %>% 
+  nest() %>% 
+  mutate(
+    fit_ppml =  map(data, ~ {
+      gravity::ppml(dependent_variable = "value", distance = "distance_km", additional_regressors = c("gdp_from", "gdp_to", "gcc", "mercosur", "efta", "comesa", "afta", "nafta", "ei", "spread_from"), data = .)
+    })
+  )
+```
+
+```{r}
+fit_ppml_df %>% 
+  filter(product == "total", time == 2019) %>% 
+  pull() %>% 
+  first() %>% 
+  plotmo::plotmo(inverse.func = log)
 ```
 
 
@@ -70,21 +203,6 @@ NiceProductName <- function(x, wrap = NULL) {
 
 
 ## Gravity model
-
-```{r}
-gravity_fit_df <- trade_df %>%
-  filter(value >= 0) %>%
-  left_join(x = distance_gdp_df, c("geo_to", "geo_from")) %>% 
-  filter(direction == "netto_trade") %>% 
-  mutate(across(starts_with("gdp"), log)) %>% 
-  group_by(product) %>% 
-  nest() %>% 
-  mutate(
-    fit_ppml =  map(data, ~ {
-      gravity::ppml(dependent_variable = "value", distance = "distance", additional_regressors = c("gdp_from", "gdp_to"), data = .)
-    })
-  )
-```
 
 ```{r}
 l <- code_label_df %>% 
@@ -132,5 +250,21 @@ augmented_ppml_df %>%
   summarise(bottom5std.error = str_c(str_c(geo_from, "-", geo_to), collapse = ", ")) %>% 
   mutate(product = NiceProductName(product)) %>% 
   granatlib::kable_output()
+```
+
+## Panel
+
+```{r}
+gravity_df %>% 
+  filter(value >= 0) %>%
+  mutate(across(starts_with("gdp"), log)) %>% 
+  mutate_if(is.logical, as.factor) %>% 
+  group_by(product) %>% 
+  nest() %>% 
+  mutate(
+    fit_ppml =  map(data, ~ {
+      gravity::ppml(dependent_variable = "value", distance = "distance_km", additional_regressors = c("gdp_from", "gdp_to", "gcc", "mercosur", "efta", "comesa", "afta", "nafta", "ei", "spread_from"), data = .)
+    })
+  )
 ```
 

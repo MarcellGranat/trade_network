@@ -1,3 +1,4 @@
+library(tidyverse)
 rm(list = ls())
 
 raw_data_df <- list.files("raw", full.names = TRUE) %>% 
@@ -10,7 +11,7 @@ raw_data_df <- list.files("raw", full.names = TRUE) %>%
 load("raw/data_total.RData")
 load("raw/data_5_10.rdata")
 
-trade_df <- raw_data_df %>%
+trade_df <- raw_data_df %>% # TODO filter to 10
   unnest(data) %>% 
   bind_rows(
     map_df(raw_data_total$data, 2) %>% 
@@ -54,11 +55,23 @@ trade_avg_df <- trade_df %>% # compare export and import
   ) %>% 
   select(- export, - import)
 
+geo_list <- c(trade_df$geo_from, trade_df$geo_to) %>% 
+  unique() %>% 
+  setdiff("WLD")
+
+trade_avg_df <- crossing(time = as.character(2000:2019), 
+         geo_from = geo_list, 
+         geo_to = geo_list,
+         product = unique(trade_df$product)
+         ) %>% 
+  left_join(trade_avg_df) %>% 
+  replace_na(list(value = 0))
+
 netto_export_df <- trade_avg_df %>% 
   rename(export = value) %>% 
   left_join(
     trade_avg_df %>% 
-      rename(geo_to = 3, geo_from = 4, import = value)
+      rename(geo_to = 2, geo_from = 3, import = value)
   ) %>% 
   replace_na(list(export = 0, import = 0)) %>% 
   mutate(netto_export = export - import) %>% 
